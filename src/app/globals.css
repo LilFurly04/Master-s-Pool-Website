@@ -1,0 +1,34 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --masters-green: #006747;
+  --masters-gold: #CBA135;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-gray-50 text-gray-900 antialiased;
+  }
+
+  h1, h2, h3 {
+    @apply font-serif;
+  }
+}
+
+@layer utilities {
+  .text-score-under {
+    @apply text-red-600 font-bold;
+  }
+  .text-score-even {
+    @apply text-gray-700 font-semibold;
+  }
+  .text-score-over {
+    @apply text-gray-500;
+  }
+}
