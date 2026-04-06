@@ -21,6 +21,7 @@ import {
   TIER_LABELS,
 } from "@/data/golfers";
 import GolferTooltip from "@/components/GolferTooltip";
+import GolferModal from "@/components/GolferModal";
 import { Participant } from "@/lib/types";
 
 interface GolferPickerProps {
@@ -93,6 +94,7 @@ export default function GolferPicker({ settings }: GolferPickerProps) {
   const [nameError, setNameError] = useState("");
   const [showDetails, setShowDetails] = useState(true);
   const [filterTier, setFilterTier] = useState<number | null>(null);
+  const [modalGolfer, setModalGolfer] = useState<Golfer | null>(null);
   const locked = settings.isLocked || isPickDeadlinePassed(settings);
 
   useEffect(() => {
@@ -301,36 +303,47 @@ export default function GolferPicker({ settings }: GolferPickerProps) {
 
                 return (
                   <GolferTooltip key={golfer.id} golfer={golfer} disabled={!showDetails}>
-                    <button
-                      onClick={() => handleToggle(golfer)}
-                      disabled={disabled}
-                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left text-sm transition-all border ${
-                        isSelected
-                          ? "bg-masters-green text-white border-masters-green shadow-sm"
-                          : disabled
-                          ? "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed"
-                          : `bg-white border-gray-200 cursor-pointer ${s.btn}`
-                      }`}
-                    >
-                      <span className="text-xl leading-none flex-shrink-0">
-                        {FLAG_EMOJI[golfer.country] ?? "🏴"}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <div className={`font-semibold truncate text-sm ${isSelected ? "text-white" : "text-gray-900"}`}>
-                          {golfer.name}
-                        </div>
-                        {showDetails && (
-                          <div className={`text-xs flex items-center gap-1.5 ${isSelected ? "text-white/70" : "text-gray-400"}`}>
-                            <span className="font-mono font-bold">{formatOdds(golfer.odds)}</span>
-                            <span>·</span>
-                            <span>Win {golfer.winPct.toFixed(1)}%</span>
-                            <span>·</span>
-                            <span>Top5 {golfer.top5Pct}%</span>
+                    <div className={`w-full flex items-center gap-2 rounded-lg text-left text-sm transition-all border ${
+                      isSelected
+                        ? "bg-masters-green text-white border-masters-green shadow-sm"
+                        : disabled
+                        ? "bg-gray-50 text-gray-300 border-gray-100"
+                        : `bg-white border-gray-200 ${s.btn}`
+                    }`}>
+                      <button
+                        onClick={() => handleToggle(golfer)}
+                        disabled={disabled}
+                        className={`flex-1 flex items-center gap-3 px-3 py-2.5 min-w-0 ${disabled && !isSelected ? "cursor-not-allowed" : "cursor-pointer"}`}
+                      >
+                        <span className="text-xl leading-none flex-shrink-0">
+                          {FLAG_EMOJI[golfer.country] ?? "🏴"}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className={`font-semibold truncate text-sm ${isSelected ? "text-white" : "text-gray-900"}`}>
+                            {golfer.name}
                           </div>
-                        )}
-                      </div>
-                      {isSelected && <span className="text-white flex-shrink-0">✓</span>}
-                    </button>
+                          {showDetails && (
+                            <div className={`text-xs font-mono font-bold ${isSelected ? "text-white/70" : "text-gray-400"}`}>
+                              {formatOdds(golfer.odds)}
+                            </div>
+                          )}
+                        </div>
+                        {isSelected && <span className="text-white flex-shrink-0">✓</span>}
+                      </button>
+                      {/* Info button */}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setModalGolfer(golfer); }}
+                        className={`flex-shrink-0 w-7 h-7 mr-2 flex items-center justify-center rounded-full text-xs font-bold transition-colors ${
+                          isSelected
+                            ? "text-white/60 hover:text-white hover:bg-white/20"
+                            : "text-gray-400 hover:text-masters-green hover:bg-masters-green/10"
+                        }`}
+                        title="Player details"
+                        aria-label={`Details for ${golfer.name}`}
+                      >
+                        ⓘ
+                      </button>
+                    </div>
                   </GolferTooltip>
                 );
               })}
@@ -371,9 +384,14 @@ export default function GolferPicker({ settings }: GolferPickerProps) {
           <li>Scores are relative to par — <strong>lowest total wins</strong></li>
           <li>Missed cut = score + <strong>+{settings.cutPenalty} strokes per remaining round</strong> (Rounds 3 &amp; 4)</li>
           <li>Picks <strong>lock at first tee time</strong> Thursday morning</li>
-          <li>Hover any golfer for Masters history, recent form &amp; strokes gained</li>
+          <li>Hover any golfer for a quick glance · click <strong>ⓘ</strong> for full stats &amp; history</li>
         </ul>
       </div>
+
+      {/* Player detail modal */}
+      {modalGolfer && (
+        <GolferModal golfer={modalGolfer} onClose={() => setModalGolfer(null)} />
+      )}
     </div>
   );
 }
