@@ -44,6 +44,13 @@ function ProbabilityBar({ pct, color }: { pct: number; color: string }) {
   );
 }
 
+interface OddsData {
+  odds: { golferId: string; winPct: number }[];
+  source: "live" | "static";
+  bookmakers: string[];
+  requestsRemaining: number | null;
+}
+
 export default function PoolStandings({ settings }: PoolStandingsProps) {
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [liveScores, setLiveScores] = useState<LiveScore[]>([]);
@@ -53,20 +60,47 @@ export default function PoolStandings({ settings }: PoolStandingsProps) {
   const [showProb, setShowProb] = useState(true);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  const [oddsInfo, setOddsInfo] = useState<{ source: string; books: string[]; remaining: number | null } | null>(null);
 
   const fetchData = useCallback(async () => {
     const p = loadParticipants();
     setParticipants(p);
     try {
-      const res = await fetch("/api/leaderboard");
-      if (res.ok) {
-        const data: LeaderboardData = await res.json();
-        const scores = data.scores ?? [];
-        setLiveScores(scores);
-        setTournamentStatus(data.status?.status ?? "pre");
-        setEntries(computePoolEntries(p, scores, settings));
-        setLastRefresh(new Date());
+      // Fetch leaderboard and odds in parallel
+      const [lbRes, oddsRes] = await Promise.all([
+        fetch("/api/leaderboard"),
+        fetch("/api/odds"),
+      ]);
+
+      const scores = lbRes.ok ? ((await lbRes.json()) as LeaderboardData).scores ?? [] : [];
+      const status = lbRes.ok ? ((await lbRes.json().catch(() => ({}))) as LeaderboardData).status?.status ?? "pre" : "pre";
+
+      // Re-fetch leaderboard cleanly
+      let lbData: LeaderboardData = { scores: [], status: { status: "pre", round: 0 } };
+      if (lbRes.ok) {
+        try { lbData = await fetch("/api/leaderboard").then((r) => r.json()); } catch { /**/ }
       }
+      const cleanScores = lbData.scores ?? [];
+      const cleanStatus = lbData.status?.status ?? "pre";
+
+      // Build live odds map
+      const liveOddsMap = new Map<string, number>();
+      if (oddsRes.ok) {
+        const oddsData: OddsData = await oddsRes.json();
+        for (const o of oddsData.odds ?? []) {
+          liveOddsMap.set(o.golferId, o.winPct);
+        }
+        setOddsInfo({
+          source: oddsData.source,
+          books: oddsData.bookmakers ?? [],
+          remaining: oddsData.requestsRemaining ?? null,
+        });
+      }
+
+      setLiveScores(cleanScores);
+      setTournamentStatus(cleanStatus);
+      setEntries(computePoolEntries(p, cleanScores, settings, liveOddsMap));
+      setLastRefresh(new Date());
     } catch {
       setEntries(computePoolEntries(p, [], settings));
     } finally {
@@ -130,16 +164,43 @@ export default function PoolStandings({ settings }: PoolStandingsProps) {
         </div>
       </div>
 
-      {/* Probability legend */}
+      {/* Probability legend + odds source */}
       {showProb && (
-        <div className="bg-white border border-gray-200 rounded-xl p-4 text-xs text-gray-500 flex flex-wrap gap-4">
-          <div>
-            <span className="font-semibold text-gray-700">Pool Win%</span> — probability of winning the overall pool
-            {isPre ? " (pre-tournament, based on lineup odds)" : " (live, based on current scores + remaining rounds)"}
+        <div className="bg-white border border-gray-200 rounded-xl p-4 text-xs text-gray-500 space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <span className="font-semibold text-gray-700">Pool Win%</span>
+              {" — "}
+              {isPre
+                ? "pre-tournament estimate based on lineup odds"
+                : "live estimate blending current scores + live odds + rounds remaining"}
+            </div>
+            {oddsInfo && (
+              <div className="flex items-center gap-1.5">
+                <span
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${
+                    oddsInfo.source === "live"
+                      ? "bg-green-50 border-green-200 text-green-700"
+                      : "bg-amber-50 border-amber-200 text-amber-700"
+                  }`}
+                >
+                  {oddsInfo.source === "live" ? "🟢 Live odds" : "📌 Static odds"}
+                  {oddsInfo.source === "live" && oddsInfo.books.length > 0 && (
+                    <span className="opacity-70">· {oddsInfo.books.slice(0, 2).join(", ")}</span>
+                  )}
+                </span>
+                {oddsInfo.remaining !== null && (
+                  <span className="text-gray-400">{oddsInfo.remaining} API calls left</span>
+                )}
+              </div>
+            )}
           </div>
-          <div>
-            <span className="font-semibold text-gray-700">Golfer Win%</span> — probability ≥1 of your 6 golfers wins the tournament
-          </div>
+          {oddsInfo?.source !== "live" && (
+            <p className="text-gray-400">
+              💡 Add an <code className="bg-gray-100 px-1 rounded">ODDS_API_KEY</code> to <code className="bg-gray-100 px-1 rounded">.env.local</code> for live FanDuel/DraftKings odds —{" "}
+              <span className="text-masters-green">free at the-odds-api.com</span>
+            </p>
+          )}
         </div>
       )}
 

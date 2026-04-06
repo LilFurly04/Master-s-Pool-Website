@@ -51,9 +51,12 @@ function effectiveScore(liveScore: LiveScore, cutPenalty: number): number {
 
 /**
  * Computes pre-tournament lineup probability metrics for a participant.
- * Uses each golfer's stored odds-derived probabilities.
+ * Uses live odds map when provided, otherwise falls back to static golfer data.
  */
-function computeLinupProbability(participant: Participant): {
+function computeLineupProbability(
+  participant: Participant,
+  liveOddsMap: Map<string, number> // golferId → current win%
+): {
   lineupGolferWinPct: number;
   lineupTop5Pct: number;
 } {
@@ -65,34 +68,38 @@ function computeLinupProbability(participant: Participant): {
 
   if (golfers.length === 0) return { lineupGolferWinPct: 0, lineupTop5Pct: 0 };
 
+  const winPcts = golfers.map((g) => liveOddsMap.get(g!.id) ?? g!.winPct);
+  const top5Pcts = golfers.map((g) => g!.top5Pct); // top5 from static for now
+
   // P(at least one wins) = 1 - product(1 - p_win_i)
-  const pNoneWin = golfers.reduce((acc, g) => acc * (1 - g!.winPct / 100), 1);
-  const lineupGolferWinPct = parseFloat(((1 - pNoneWin) * 100).toFixed(1));
+  const pNoneWin = winPcts.reduce((acc, p) => acc * (1 - p / 100), 1);
+  const pNoneTop5 = top5Pcts.reduce((acc, p) => acc * (1 - p / 100), 1);
 
-  // P(at least one finishes top 5)
-  const pNoneTop5 = golfers.reduce((acc, g) => acc * (1 - g!.top5Pct / 100), 1);
-  const lineupTop5Pct = parseFloat(((1 - pNoneTop5) * 100).toFixed(1));
-
-  return { lineupGolferWinPct, lineupTop5Pct };
+  return {
+    lineupGolferWinPct: parseFloat(((1 - pNoneWin) * 100).toFixed(1)),
+    lineupTop5Pct: parseFloat(((1 - pNoneTop5) * 100).toFixed(1)),
+  };
 }
 
 /**
  * Computes a "lineup strength score" for pool-win probability estimation.
  * Lower score = stronger lineup.
- * Based on sum of best 5 of 6 golfers' expected contribution (inverse of odds).
+ * Uses live odds map when available, otherwise falls back to static data.
  */
-function lineupStrengthScore(participant: Participant): number {
+function lineupStrengthScore(
+  participant: Participant,
+  liveOddsMap: Map<string, number> = new Map()
+): number {
   const golferScores = ALL_SLOTS
     .map((slot) => participant.picks[slot])
     .filter(Boolean)
     .map((id) => {
       const g = getGolferById(id!);
       if (!g) return Infinity;
-      // Use -log(winPct/100) as strength proxy — lower = stronger
-      return -Math.log(Math.max(g.winPct / 100, 0.0001));
+      const winPct = liveOddsMap.get(id!) ?? g.winPct;
+      return -Math.log(Math.max(winPct / 100, 0.0001));
     });
 
-  // Sort ascending and take best 5
   golferScores.sort((a, b) => a - b);
   const best5 = golferScores.slice(0, 5);
   return best5.reduce((sum, s) => sum + s, 0);
@@ -101,14 +108,15 @@ function lineupStrengthScore(participant: Participant): number {
 /**
  * Converts relative lineup strength scores to pool win/top3/top5 probabilities.
  *
- * Mode "pre":  based purely on FanDuel odds (before tournament).
- * Mode "live": based on current pool scores + remaining variance model.
- *              Golfers currently ahead have higher probability but remaining
- *              rounds create uncertainty (σ ≈ 3.5 strokes/round).
+ * Mode "pre":  odds-based (pre-tournament or when live odds available).
+ *              Uses liveOddsMap if populated, otherwise falls back to static.
+ * Mode "live": blends current score gaps (Gaussian model) with odds-based
+ *              strength. As more rounds complete, score gap dominates.
  */
 function assignPoolProbabilities(
   entries: PoolEntry[],
-  tournamentRoundsRemaining = 4
+  tournamentRoundsRemaining = 4,
+  liveOddsMap: Map<string, number> = new Map()
 ): void {
   if (entries.length === 0) return;
   const n = entries.length;
@@ -117,17 +125,32 @@ function assignPoolProbabilities(
   let weights: number[];
 
   if (isLive) {
-    // Live mode: use current score gap to estimate win probability.
-    // Remaining variance per round = 3.5 strokes std dev
+    // Blend score-gap model with odds-based strength.
+    // As rounds complete, score gap weight increases (odds matter less).
+    const roundsPlayed = 4 - tournamentRoundsRemaining;
+    const oddsWeight = Math.max(0, 1 - roundsPlayed * 0.3); // fades to 0 after R3
+    const scoreWeight = 1 - oddsWeight;
+
     const sigma = 3.5 * Math.sqrt(Math.max(tournamentRoundsRemaining, 0.5));
     const scores = entries.map((e) => e.totalScore);
     const leader = Math.min(...scores);
+    const scoreWeights = scores.map((s) =>
+      Math.exp(-Math.pow(s - leader, 2) / (2 * sigma * sigma))
+    );
 
-    // weight_i = exp(- gap_i^2 / (2 * sigma^2))  — Gaussian model
-    weights = scores.map((s) => Math.exp(-Math.pow(s - leader, 2) / (2 * sigma * sigma)));
+    const strengths = entries.map((e) => lineupStrengthScore(e.participant, liveOddsMap));
+    const oddsWeights = strengths.map((s) => Math.exp(-s * 0.3));
+
+    // Normalize each independently then blend
+    const swTotal = scoreWeights.reduce((a, b) => a + b, 0);
+    const owTotal = oddsWeights.reduce((a, b) => a + b, 0);
+    weights = entries.map((_, i) =>
+      scoreWeight * (scoreWeights[i] / swTotal) +
+      oddsWeight * (oddsWeights[i] / owTotal)
+    );
   } else {
-    // Pre-tournament: use lineup strength from odds
-    const strengths = entries.map((e) => lineupStrengthScore(e.participant));
+    // Pre-tournament: pure odds-based
+    const strengths = entries.map((e) => lineupStrengthScore(e.participant, liveOddsMap));
     weights = strengths.map((s) => Math.exp(-s * 0.3));
   }
 
@@ -138,10 +161,10 @@ function assignPoolProbabilities(
 
   entries.forEach((entry, i) => {
     const w = weights[i];
-    const lineup = computeLinupProbability(entry.participant);
+    const lineup = computeLineupProbability(entry.participant, liveOddsMap);
 
     entry.probability = {
-      poolWinPct: parseFloat(((w / totalWeight) * 100).toFixed(1)),
+      poolWinPct:  parseFloat(((w / totalWeight) * 100).toFixed(1)),
       poolTop3Pct: parseFloat((Math.min(99, (w / top3Sum) * Math.min(3, n))).toFixed(1)),
       poolTop5Pct: parseFloat((Math.min(99, (w / top5Sum) * Math.min(5, n))).toFixed(1)),
       lineupGolferWinPct: lineup.lineupGolferWinPct,
@@ -155,7 +178,8 @@ function assignPoolProbabilities(
 export function computePoolEntries(
   participants: Participant[],
   liveScores: LiveScore[],
-  settings: PoolSettings
+  settings: PoolSettings,
+  liveOddsMap: Map<string, number> = new Map()  // golferId → live win%
 ): PoolEntry[] {
   const scoreMap = new Map<string, LiveScore>();
   for (const s of liveScores) {
@@ -221,8 +245,8 @@ export function computePoolEntries(
   const maxRound = liveScores.reduce((m, s) => Math.max(m, s.currentRound), 0);
   const roundsRemaining = liveScores.length > 0 ? Math.max(0, 4 - maxRound) : 4;
 
-  // Assign probability estimates (live-aware)
-  assignPoolProbabilities(entries, roundsRemaining);
+  // Assign probability estimates (live-aware, odds-informed)
+  assignPoolProbabilities(entries, roundsRemaining, liveOddsMap);
 
   return entries;
 }

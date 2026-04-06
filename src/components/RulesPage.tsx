@@ -30,14 +30,14 @@ export default function RulesPage({ settings }: { settings: { cutPenalty: number
 
       {/* Missed cut rule */}
       <Section title="✂️ Missed Cut Rule" color="red">
-        <p>The Masters cut is made after <strong>Rounds 1 &amp; 2</strong>. Approximately the top 50 players and ties advance to <strong>Rounds 3 &amp; 4</strong>.</p>
+        <p>The Masters cut is made after <strong>36 holes</strong> (Rounds 1 &amp; 2). Approximately the top 50 players and ties advance to the weekend — Rounds 3 &amp; 4.</p>
         <ul className="space-y-2 mt-3">
           <li>
-            If one of your golfers <strong>misses the cut</strong>, their effective score is their Rounds 1 &amp; 2 total plus a penalty of{" "}
-            <strong>+{settings.cutPenalty} strokes for each of Rounds 3 &amp; 4</strong> they miss (= +{settings.cutPenalty * 2} total penalty).
+            If one of your golfers <strong>misses the cut</strong>, their effective score is their 36-hole total plus a penalty of{" "}
+            <strong>+{settings.cutPenalty} strokes per weekend round</strong> missed (Rounds 3 &amp; 4 = +{settings.cutPenalty * 2} total).
           </li>
           <li>
-            Example: A golfer finishes at <strong>+4</strong> after Rounds 1 &amp; 2 and misses the cut → their counted score is{" "}
+            Example: A golfer shoots <strong>+4</strong> through 36 holes and misses the cut → their counted score becomes{" "}
             <strong>+{4 + settings.cutPenalty * 2}</strong>.
           </li>
           <li>
