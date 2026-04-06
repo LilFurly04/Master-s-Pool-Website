@@ -81,6 +81,11 @@ export const GOLFERS: Golfer[] = [
   g("conners",      "Corey Conners",          "CAN", 62,  3,   8000,  9988),
   g("penge",        "Marco Penge",            "ENG", 70,  3,   8000),
   g("day",          "Jason Day",              "AUS", 65,  3,   8000,  3236),
+  g("finau",        "Tony Finau",             "USA", 20,  3,   8000,  6798),
+  g("niemann",      "Joaquin Niemann",        "CHI", 22,  3,   8000, 10588),
+  g("tomkim",       "Tom Kim",                "KOR", 27,  3,   9000, 11378),
+  g("theegala",     "Sahith Theegala",        "USA", 36,  3,  10000, 11138),
+  g("dunlap",       "Nick Dunlap",            "USA", 38,  3,  10000, 11558),
 
   // ── TIER 4 ──────────────────────────────────────────────────────────────────
   g("burns",        "Sam Burns",              "USA", 80,  4,  10000, 10356),
@@ -106,6 +111,20 @@ export const GOLFERS: Golfer[] = [
   g("djohnson",     "Dustin Johnson",         "USA",155,  4,  22500,  3284),
   g("clark",        "Wyndham Clark",          "USA",160,  4,  22500, 11175),
   g("garcia",       "Sergio Garcia",          "ESP",165,  4,  25000,   890),
+  g("greyserman",   "Max Greyserman",         "USA", 43,  4,  20000, 11413),
+  g("mckibbin",     "Tom McKibbin",           "NIR", 52,  4,  20000, 11474),
+  g("eckroat",      "Austin Eckroat",         "USA", 58,  4,  25000, 11159),
+  g("potgieter",    "Aldrich Potgieter",      "RSA", 62,  4,  25000),
+  g("pavon",        "Matthieu Pavon",         "FRA", 68,  4,  30000, 11249),
+  g("driley",       "Davis Riley",            "USA", 72,  4,  30000, 11087),
+  g("dmccarthy",    "Denny McCarthy",         "USA", 75,  4,  40000,  9956),
+  g("novak",        "Andrew Novak",           "USA", 82,  4,  50000, 11348),
+  g("ecole",        "Eric Cole",              "USA", 88,  4,  50000, 11304),
+  g("power",        "Seamus Power",           "IRL", 95,  4,  50000,  9816),
+  g("cortiz",       "Carlos Ortiz",           "MEX",105,  4,  75000, 10157),
+  g("reitan",       "Kristoffer Reitan",      "NOR",110,  4,  75000),
+  g("tlawrence",    "Thriston Lawrence",      "RSA",118,  4, 100000),
+  g("mccarty",      "Matt McCarty",           "USA",122,  4, 100000, 11590),
   g("watson",       "Bubba Watson",           "USA",200,  4,  50000,  1974),
   g("schwartzel",   "Charl Schwartzel",       "RSA",210,  4,  75000,  3285),
   g("zjohnson",     "Zach Johnson",           "USA",215,  4,  75000,  1430),
@@ -114,6 +133,13 @@ export const GOLFERS: Golfer[] = [
   g("weir",         "Mike Weir",              "CAN",230,  4, 100000,   545),
   g("olazabal",     "Jose Maria Olazabal",    "ESP",235,  4, 100000,   280),
   g("singh",        "Vijay Singh",            "FIJ",240,  4, 100000,   407),
+  // ── Amateurs ────────────────────────────────────────────────────────────────
+  g("mhowell",      "Mason Howell",           "USA",null, 4, 500000),
+  g("jherrington",  "Jackson Herrington",     "USA",null, 4, 500000),
+  g("bholtz",       "Brandon Holtz",          "USA",null, 4, 500000),
+  g("efang",        "Ethan Fang",             "USA",null, 4, 500000),
+  g("flaopakdee",   "Fifa Laopakdee",         "THA",null, 4, 500000),
+  g("mpulcini",     "Mateo Pulcini",          "ARG",null, 4, 500000),
 ];
 
 // ─── Lookup helpers ───────────────────────────────────────────────────────────
@@ -147,5 +173,6 @@ export const FLAG_EMOJI: Record<string, string> = {
   ESP: "🇪🇸", SWE: "🇸🇪", NOR: "🇳🇴", JPN: "🇯🇵",
   AUS: "🇦🇺", IRL: "🇮🇪", CAN: "🇨🇦", BEL: "🇧🇪",
   KOR: "🇰🇷", RSA: "🇿🇦", DEN: "🇩🇰", NZL: "🇳🇿",
-  AUT: "🇦🇹", FIJ: "🇫🇯",
+  AUT: "🇦🇹", FIJ: "🇫🇯", CHI: "🇨🇱", MEX: "🇲🇽",
+  THA: "🇹🇭", ARG: "🇦🇷", FRA: "🇫🇷",
 };
