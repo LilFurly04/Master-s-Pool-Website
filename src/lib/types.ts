@@ -4,13 +4,14 @@ export interface Golfer {
   id: string;
   name: string;
   country: string;
-  worldRank: number;
+  owgr: number | null;   // Official World Golf Ranking
   tier: Tier;
-  odds: number;       // American odds (positive), e.g. 400 for +400
-  winPct: number;     // 0–100, implied probability of winning
-  top5Pct: number;    // 0–100
-  top10Pct: number;   // 0–100
-  top20Pct: number;   // 0–100
+  odds: number;          // FanDuel American odds (positive), e.g. 500 for +500
+  winPct: number;        // 0–100, implied win probability
+  top5Pct: number;       // 0–100
+  top10Pct: number;      // 0–100
+  top20Pct: number;      // 0–100
+  espnId?: number;       // ESPN player ID for headshot URLs
 }
 
 export interface LiveScore {

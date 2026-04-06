@@ -260,12 +260,11 @@ function EntryCard({
         <div className="border-t border-gray-100 bg-gray-50 px-4 py-4 space-y-4">
           {/* Probability cards */}
           {showProb && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               {[
                 { label: isPre ? "Pool Win%" : "Pool Win% (live)", val: probability.poolWinPct, color: "text-masters-green", bar: "bg-masters-green" },
                 { label: "Pool Top 3%", val: probability.poolTop3Pct, color: "text-blue-600", bar: "bg-blue-500" },
                 { label: "Pool Top 5%", val: probability.poolTop5Pct, color: "text-purple-600", bar: "bg-purple-500" },
-                { label: "Golfer Win%", val: probability.lineupGolferWinPct, color: "text-masters-gold-dark", bar: "bg-masters-gold" },
               ].map(({ label, val, color, bar }) => (
                 <div key={label} className="bg-white border border-gray-200 rounded-lg p-3 text-center">
                   <div className={`text-xl font-bold font-serif ${color}`}>{val.toFixed(1)}%</div>
@@ -339,7 +338,7 @@ function EntryCard({
             })}
           </div>
           <p className="text-xs text-gray-400 text-center">
-            Best {settings.countingGolfers} of 6 count · Strikethrough = dropped score · MC penalty: +{settings.cutPenalty}/remaining round
+            Best {settings.countingGolfers} of 6 count · Strikethrough = dropped score · MC penalty: +{settings.cutPenalty}/round (Rounds 3 &amp; 4)
           </p>
         </div>
       )}

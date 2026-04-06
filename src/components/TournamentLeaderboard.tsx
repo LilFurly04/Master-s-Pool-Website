@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { LiveScore, TournamentStatus } from "@/lib/types";
 import { formatScore, scoreColor } from "@/lib/pool-logic";
-import { GOLFERS, FLAG_EMOJI, getGolferById } from "@/data/golfers";
+import { GOLFERS, FLAG_EMOJI, formatOdds, getGolferById } from "@/data/golfers";
 
 interface LeaderboardData {
   scores: LiveScore[];
@@ -18,14 +18,9 @@ const TIER_COLORS: Record<number, string> = {
   4: "bg-gray-400 text-gray-900",
 };
 
-const TIER_LABELS_SHORT: Record<number, string> = {
-  1: "T1", 2: "T2", 3: "T3", 4: "T4",
-};
-
 export default function TournamentLeaderboard() {
   const [data, setData] = useState<LeaderboardData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
   const fetchLeaderboard = useCallback(async () => {
@@ -35,9 +30,8 @@ export default function TournamentLeaderboard() {
       const json: LeaderboardData = await res.json();
       setData(json);
       setLastRefresh(new Date());
-      setError(null);
     } catch {
-      setError("Unable to load leaderboard. Retrying…");
+      // keep previous data
     } finally {
       setLoading(false);
     }
@@ -45,7 +39,7 @@ export default function TournamentLeaderboard() {
 
   useEffect(() => {
     fetchLeaderboard();
-    const interval = setInterval(fetchLeaderboard, 60_000); // refresh every minute
+    const interval = setInterval(fetchLeaderboard, 60_000);
     return () => clearInterval(interval);
   }, [fetchLeaderboard]);
 
@@ -61,11 +55,7 @@ export default function TournamentLeaderboard() {
   }
 
   if (!data) {
-    return (
-      <div className="text-center py-16 text-gray-500">
-        {error ?? "No data available."}
-      </div>
-    );
+    return <div className="text-center py-16 text-gray-500">No data available.</div>;
   }
 
   const { scores, status } = data;
@@ -80,7 +70,7 @@ export default function TournamentLeaderboard() {
           <p className="text-gray-500 text-sm mt-0.5">
             {isPre
               ? "Tournament begins Thursday, April 9 · First tee 8:00 AM ET"
-              : `Round ${status.round} · Last updated ${lastRefresh ? lastRefresh.toLocaleTimeString() : "—"}`}
+              : `Round ${status.round} · Updated ${lastRefresh ? lastRefresh.toLocaleTimeString() : "—"}`}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -98,16 +88,13 @@ export default function TournamentLeaderboard() {
         </div>
       </div>
 
-      {isPre ? (
-        <PreTournamentField />
-      ) : (
-        <LeaderboardTable scores={scores} />
-      )}
+      {isPre ? <PreTournamentField /> : <LiveLeaderboardTable scores={scores} />}
     </div>
   );
 }
 
-function LeaderboardTable({ scores }: { scores: LiveScore[] }) {
+// ─── Live leaderboard (once tournament starts) ────────────────────────────────
+function LiveLeaderboardTable({ scores }: { scores: LiveScore[] }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
       <div className="overflow-x-auto">
@@ -135,11 +122,8 @@ function LeaderboardTable({ scores }: { scores: LiveScore[] }) {
               return (
                 <tr
                   key={score.golferId}
-                  className={`transition-colors ${
-                    isTop3 ? "bg-masters-gold/5" : "hover:bg-gray-50"
-                  } ${score.isWithdrawn ? "opacity-50" : ""}`}
+                  className={`transition-colors ${isTop3 ? "bg-masters-gold/5" : "hover:bg-gray-50"} ${score.isWithdrawn ? "opacity-50" : ""}`}
                 >
-                  {/* Position */}
                   <td className="px-4 py-3 text-center">
                     {i === 0 ? (
                       <span className="text-lg">🏆</span>
@@ -150,7 +134,6 @@ function LeaderboardTable({ scores }: { scores: LiveScore[] }) {
                     )}
                   </td>
 
-                  {/* Player */}
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <span className="text-base">{flag}</span>
@@ -158,38 +141,28 @@ function LeaderboardTable({ scores }: { scores: LiveScore[] }) {
                         <span className={`font-semibold ${isTop3 ? "text-masters-green" : "text-gray-900"}`}>
                           {score.golferName}
                         </span>
-                        {score.isWithdrawn && (
-                          <span className="ml-2 text-xs text-red-500 font-medium">WD</span>
-                        )}
-                        {!score.madeCut && !score.isWithdrawn && (
-                          <span className="ml-2 text-xs text-gray-400 font-medium">MC</span>
-                        )}
+                        {score.isWithdrawn && <span className="ml-2 text-xs text-red-500 font-medium">WD</span>}
+                        {!score.madeCut && !score.isWithdrawn && <span className="ml-2 text-xs text-gray-400 font-medium">MC</span>}
                       </div>
                     </div>
                   </td>
 
-                  {/* Total score */}
                   <td className={`px-3 py-3 text-center font-bold text-base ${scoreColor(score.totalScore)}`}>
                     {score.totalScoreDisplay}
                   </td>
 
-                  {/* Thru */}
-                  <td className="px-3 py-3 text-center text-gray-500 hidden sm:table-cell">
-                    {score.thru}
-                  </td>
+                  <td className="px-3 py-3 text-center text-gray-500 hidden sm:table-cell">{score.thru}</td>
 
-                  {/* Round scores */}
                   {[0, 1, 2, 3].map((r) => (
                     <td key={r} className={`px-3 py-3 text-center hidden md:table-cell ${scoreColor(score.roundScores[r] ?? null)}`}>
                       {formatScore(score.roundScores[r] ?? null)}
                     </td>
                   ))}
 
-                  {/* Tier badge */}
                   <td className="px-3 py-3 text-center">
                     {tier ? (
                       <span className={`inline-block text-xs font-bold px-2 py-0.5 rounded-full ${TIER_COLORS[tier]}`}>
-                        {TIER_LABELS_SHORT[tier]}
+                        T{tier}
                       </span>
                     ) : (
                       <span className="text-gray-300">—</span>
@@ -205,7 +178,11 @@ function LeaderboardTable({ scores }: { scores: LiveScore[] }) {
   );
 }
 
+// ─── Pre-tournament field view ────────────────────────────────────────────────
 function PreTournamentField() {
+  const [filterTier, setFilterTier] = useState<number | null>(null);
+  const filtered = filterTier ? GOLFERS.filter((g) => g.tier === filterTier) : GOLFERS;
+
   return (
     <div className="space-y-4">
       <div className="bg-masters-cream border border-masters-gold/30 rounded-xl p-6 text-center">
@@ -214,31 +191,64 @@ function PreTournamentField() {
           Tournament Begins Thursday, April 9
         </h3>
         <p className="text-gray-600 text-sm">
-          Live scoring will appear here once the tournament starts. Submit your picks before the first tee time!
+          Live scoring will appear here once Rounds 1 &amp; 2 begin. Submit your picks before the first tee time!
         </p>
       </div>
+
+      {/* Tier filter */}
+      <div className="flex gap-2 flex-wrap">
+        {[null, 1, 2, 3, 4].map((t) => (
+          <button
+            key={String(t)}
+            onClick={() => setFilterTier(t)}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-full border transition-all ${
+              filterTier === t
+                ? "bg-masters-green text-white border-masters-green"
+                : "bg-white text-gray-600 border-gray-200 hover:border-masters-green/50"
+            }`}
+          >
+            {t === null ? "All Players" : `Tier ${t}`}
+          </button>
+        ))}
+      </div>
+
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="bg-masters-green text-white px-4 py-3">
-          <h3 className="font-semibold">2026 Masters Field</h3>
+        <div className="bg-masters-green text-white px-4 py-3 flex items-center justify-between">
+          <h3 className="font-semibold">2026 Masters Field ({filtered.length} players)</h3>
+          <span className="text-white/60 text-xs">Odds: FanDuel · Rankings: OWGR</span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="text-left px-4 py-2 text-gray-600 font-semibold">Player</th>
-                <th className="text-center px-4 py-2 text-gray-600 font-semibold">World Rank</th>
-                <th className="text-center px-4 py-2 text-gray-600 font-semibold">Tier</th>
+                <th className="text-center px-3 py-2 text-gray-600 font-semibold">OWGR</th>
+                <th className="text-center px-3 py-2 text-gray-600 font-semibold hidden sm:table-cell">Odds</th>
+                <th className="text-center px-3 py-2 text-gray-600 font-semibold hidden sm:table-cell">Win%</th>
+                <th className="text-center px-3 py-2 text-gray-600 font-semibold">Tier</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {GOLFERS.map((g) => (
+              {filtered.map((g) => (
                 <tr key={g.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-2.5 flex items-center gap-2">
-                    <span>{FLAG_EMOJI[g.country] ?? "🏴"}</span>
-                    <span className="font-medium text-gray-900">{g.name}</span>
+                  <td className="px-4 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-base">{FLAG_EMOJI[g.country] ?? "🏴"}</span>
+                      <span className="font-medium text-gray-900">{g.name}</span>
+                    </div>
                   </td>
-                  <td className="px-4 py-2.5 text-center text-gray-500">#{g.worldRank}</td>
-                  <td className="px-4 py-2.5 text-center">
+                  <td className="px-3 py-2.5 text-center text-gray-500 text-xs font-medium">
+                    {g.owgr ? `#${g.owgr}` : "—"}
+                  </td>
+                  <td className="px-3 py-2.5 text-center text-gray-600 font-mono text-xs hidden sm:table-cell">
+                    {formatOdds(g.odds)}
+                  </td>
+                  <td className="px-3 py-2.5 text-center text-xs hidden sm:table-cell">
+                    <span className={g.winPct > 5 ? "text-masters-green font-semibold" : "text-gray-400"}>
+                      {g.winPct.toFixed(1)}%
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5 text-center">
                     <span className={`inline-block text-xs font-bold px-2 py-0.5 rounded-full ${TIER_COLORS[g.tier]}`}>
                       T{g.tier}
                     </span>
