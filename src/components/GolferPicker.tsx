@@ -1,8 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Participant, PoolSettings } from "@/lib/types";
+import { Golfer, Participant, PickSlot, PoolSettings, TIER_SLOTS } from "@/lib/types";
+import GolferTooltip from "@/components/GolferTooltip";
 import {
+  countPicksForTier,
+  isPickDeadlinePassed,
   loadMyName,
   loadMyPicks,
   loadParticipants,
@@ -10,53 +13,38 @@ import {
   saveMyName,
   saveMyPicks,
   saveParticipants,
-  isPickDeadlinePassed,
 } from "@/lib/pool-logic";
 import {
-  GOLFERS,
-  TIER_LABELS,
-  TIER_DESCRIPTIONS,
-  getGolfersByTier,
   FLAG_EMOJI,
+  formatOdds,
+  GOLFERS,
+  getGolfersByTier,
+  TIER_DESCRIPTIONS,
+  TIER_LABELS,
+  TIER_PICK_COUNT,
 } from "@/data/golfers";
 
 interface GolferPickerProps {
   settings: PoolSettings;
 }
 
-type TierKey = "tier1" | "tier2" | "tier3" | "tier4";
+const TIER_STYLE = {
+  1: { border: "border-yellow-200 bg-yellow-50",   header: "bg-yellow-100 border-yellow-300 text-yellow-900",  badge: "bg-yellow-400 text-yellow-900",  btn: "hover:border-yellow-400 hover:bg-yellow-50" },
+  2: { border: "border-blue-200 bg-blue-50",       header: "bg-blue-100 border-blue-300 text-blue-900",        badge: "bg-blue-400 text-blue-900",      btn: "hover:border-blue-400 hover:bg-blue-50" },
+  3: { border: "border-green-200 bg-green-50",     header: "bg-green-100 border-green-300 text-green-900",    badge: "bg-green-400 text-green-900",    btn: "hover:border-green-400 hover:bg-green-50" },
+  4: { border: "border-gray-200 bg-gray-50",       header: "bg-gray-100 border-gray-300 text-gray-700",       badge: "bg-gray-400 text-gray-700",      btn: "hover:border-gray-400 hover:bg-gray-50" },
+} as const;
 
-const TIER_KEYS: TierKey[] = ["tier1", "tier2", "tier3", "tier4"];
-
-const TIER_BORDER: Record<number, string> = {
-  1: "border-yellow-300 bg-yellow-50",
-  2: "border-blue-300 bg-blue-50",
-  3: "border-green-300 bg-green-50",
-  4: "border-gray-300 bg-gray-50",
-};
-
-const TIER_BADGE: Record<number, string> = {
-  1: "bg-yellow-400 text-yellow-900",
-  2: "bg-blue-400 text-blue-900",
-  3: "bg-green-400 text-green-900",
-  4: "bg-gray-400 text-gray-900",
-};
-
-const TIER_HEADER: Record<number, string> = {
-  1: "bg-yellow-400/20 border-yellow-400/40 text-yellow-800",
-  2: "bg-blue-400/20 border-blue-400/40 text-blue-800",
-  3: "bg-green-400/20 border-green-400/40 text-green-800",
-  4: "bg-gray-200/60 border-gray-300 text-gray-700",
+const EMPTY_PICKS: Record<PickSlot, string | null> = {
+  tier1a: null, tier1b: null, tier2a: null, tier2b: null, tier3: null, tier4: null,
 };
 
 export default function GolferPicker({ settings }: GolferPickerProps) {
   const [myName, setMyName] = useState("");
-  const [picks, setPicks] = useState<Participant["picks"]>({
-    tier1: null, tier2: null, tier3: null, tier4: null,
-  });
+  const [picks, setPicks] = useState<Record<PickSlot, string | null>>({ ...EMPTY_PICKS });
   const [saved, setSaved] = useState(false);
   const [nameError, setNameError] = useState("");
-  const [submitted, setSubmitted] = useState(false);
+  const [showDetails, setShowDetails] = useState(true);
   const locked = settings.isLocked || isPickDeadlinePassed(settings);
 
   useEffect(() => {
@@ -64,74 +52,76 @@ export default function GolferPicker({ settings }: GolferPickerProps) {
     setPicks(loadMyPicks());
   }, []);
 
-  function handlePick(tierKey: TierKey, golferId: string) {
+  // All currently selected golfer IDs across all slots
+  const allSelected = Object.values(picks).filter(Boolean) as string[];
+
+  function handlePick(tier: 1 | 2 | 3 | 4, golferId: string) {
     if (locked) return;
+    const slots = TIER_SLOTS[tier];
+    const limit = TIER_PICK_COUNT[tier];
+
     setPicks((prev) => {
-      // Ensure golfer isn't already picked in another tier
-      const already = TIER_KEYS.find((k) => k !== tierKey && prev[k] === golferId);
-      if (already) return prev;
-      return { ...prev, [tierKey]: golferId };
+      // If already selected in this tier, deselect it
+      const slot = slots.find((s) => prev[s] === golferId);
+      if (slot) return { ...prev, [slot]: null };
+
+      // Can't pick same golfer in another tier
+      if (allSelected.includes(golferId)) return prev;
+
+      // Find first empty slot in this tier
+      const emptySlot = slots.find((s) => !prev[s]);
+      if (!emptySlot) {
+        // Tier full — replace the second pick (slot B / last slot)
+        if (limit === 2) return { ...prev, [slots[1]]: golferId };
+        return prev;
+      }
+      return { ...prev, [emptySlot]: golferId };
     });
     setSaved(false);
   }
 
   function handleSubmit() {
-    if (!myName.trim()) {
-      setNameError("Please enter your name.");
-      return;
-    }
+    if (!myName.trim()) { setNameError("Please enter your name."); return; }
     setNameError("");
     saveMyName(myName.trim());
     saveMyPicks(picks);
 
-    // Upsert into participants list
     const existing = loadParticipants();
-    const idx = existing.findIndex(
-      (p) => p.name.toLowerCase() === myName.trim().toLowerCase()
-    );
     const participant: Participant = {
-      id: myName.trim().toLowerCase().replace(/\s+/g, "_"),
+      id: myName.trim().toLowerCase().replace(/\s+/g, "_") + "_" + Date.now(),
       name: myName.trim(),
       picks,
     };
-    if (idx >= 0) {
-      existing[idx] = participant;
-    } else {
-      existing.push(participant);
-    }
+    const idx = existing.findIndex(
+      (p) => p.name.toLowerCase() === myName.trim().toLowerCase()
+    );
+    if (idx >= 0) existing[idx] = { ...existing[idx], picks };
+    else existing.push(participant);
     saveParticipants(existing);
     setSaved(true);
-    setSubmitted(true);
   }
 
   const complete = picksComplete({ id: "", name: "", picks });
-  const allGolfersPicked = Object.values(picks).filter(Boolean);
-
-  // Count how many tiers are picked
-  const pickedCount = TIER_KEYS.filter((k) => picks[k] !== null).length;
+  const pickedCount = allSelected.length;
 
   return (
     <div className="space-y-6">
-      {/* Header card */}
+      {/* Header */}
       <div className="bg-masters-cream border border-masters-gold/30 rounded-xl p-6">
-        <h2 className="font-serif text-xl font-bold text-masters-green mb-1">
-          Make Your Picks
-        </h2>
+        <h2 className="font-serif text-xl font-bold text-masters-green mb-1">Make Your Picks</h2>
         <p className="text-gray-600 text-sm mb-4">
-          Select <strong>1 golfer from each tier</strong> (4 picks total). Your best 3 of 4 scores
-          count toward your pool total. Lowest score wins!
+          Pick <strong>2 from Tier 1</strong>, <strong>2 from Tier 2</strong>,{" "}
+          <strong>1 from Tier 3</strong>, and <strong>1 from Tier 4</strong> — 6 golfers total.
+          Your best <strong>5 of 6</strong> scores count. Lowest total wins!
         </p>
-
         {locked ? (
           <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm font-medium">
-            🔒 Picks are locked — the tournament has started or the deadline has passed.
+            🔒 Picks are locked — the deadline has passed or the admin has closed submissions.
           </div>
         ) : (
           <div className="flex items-center gap-3">
             <div className="flex-1">
-              <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">
-                Your Name
-              </label>
+              <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Your Name</label>
               <input
                 type="text"
                 value={myName}
@@ -141,94 +131,132 @@ export default function GolferPicker({ settings }: GolferPickerProps) {
               />
               {nameError && <p className="text-red-500 text-xs mt-1">{nameError}</p>}
             </div>
-            <div className="text-right">
+            <div className="text-right flex-shrink-0">
               <div className="text-xs text-gray-500 mb-1">Progress</div>
-              <div className="text-2xl font-bold text-masters-green">{pickedCount}/4</div>
+              <div className="text-2xl font-bold text-masters-green">{pickedCount}/6</div>
             </div>
           </div>
         )}
       </div>
 
-      {/* Deadline banner */}
-      {!locked && (
-        <div className="bg-masters-green/5 border border-masters-green/20 rounded-lg px-4 py-3 text-sm text-masters-green flex items-center gap-2">
-          <span>⏰</span>
-          <span>
-            Pick deadline: <strong>Thursday, April 9 at 8:00 AM ET</strong> — before the first tee time
-          </span>
-        </div>
-      )}
+      <div className="flex items-center justify-between gap-3">
+        {!locked && (
+          <div className="bg-masters-green/5 border border-masters-green/20 rounded-lg px-4 py-3 text-sm text-masters-green flex items-center gap-2 flex-1">
+            <span>⏰</span>
+            <span>Deadline: <strong>Thursday April 9 · 8:00 AM ET</strong></span>
+          </div>
+        )}
+        <button
+          onClick={() => setShowDetails((v) => !v)}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 bg-white text-sm text-gray-600 hover:bg-gray-50 transition-all flex-shrink-0"
+          title="Toggle detailed stats (odds, win %, strokes gained)"
+        >
+          <span>{showDetails ? "🔽" : "📊"}</span>
+          <span className="hidden sm:inline">{showDetails ? "Hide Stats" : "Show Stats"}</span>
+        </button>
+      </div>
 
       {/* Tier pickers */}
-      {[1, 2, 3, 4].map((tierNum) => {
-        const tierKey = `tier${tierNum}` as TierKey;
+      {([1, 2, 3, 4] as const).map((tierNum) => {
+        const s = TIER_STYLE[tierNum];
         const tierGolfers = getGolfersByTier(tierNum);
-        const selectedId = picks[tierKey];
-        const selectedGolfer = selectedId ? GOLFERS.find((g) => g.id === selectedId) : null;
+        const limit = TIER_PICK_COUNT[tierNum];
+        const slots = TIER_SLOTS[tierNum];
+        const tierPicks = slots.map((slot) => picks[slot]).filter(Boolean) as string[];
+        const tierCount = countPicksForTier({ id: "", name: "", picks }, tierNum);
 
         return (
-          <div key={tierNum} className={`border rounded-xl overflow-hidden shadow-sm ${TIER_BORDER[tierNum]}`}>
+          <div key={tierNum} className={`border rounded-xl overflow-hidden shadow-sm ${s.border}`}>
             {/* Tier header */}
-            <div className={`border-b px-4 py-3 ${TIER_HEADER[tierNum]}`}>
-              <div className="flex items-center justify-between">
+            <div className={`border-b px-4 py-3 ${s.header}`}>
+              <div className="flex items-start justify-between gap-4">
                 <div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${TIER_BADGE[tierNum]}`}>
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${s.badge}`}>
                       Tier {tierNum}
                     </span>
                     <span className="font-semibold text-sm">
                       {TIER_LABELS[tierNum].split(" — ")[1]}
                     </span>
+                    <span className="text-xs opacity-60">— pick {limit}</span>
                   </div>
-                  <p className="text-xs opacity-70 mt-0.5">{TIER_DESCRIPTIONS[tierNum]}</p>
+                  <p className="text-xs opacity-60">{TIER_DESCRIPTIONS[tierNum]}</p>
                 </div>
-                {selectedGolfer && (
-                  <div className="text-right">
-                    <div className="text-xs opacity-60">Selected</div>
-                    <div className="font-semibold text-sm flex items-center gap-1">
-                      <span>{FLAG_EMOJI[selectedGolfer.country] ?? "🏴"}</span>
-                      {selectedGolfer.name}
-                      <span className="text-green-600">✓</span>
+                {/* Selected picks summary */}
+                <div className="text-right text-sm flex-shrink-0">
+                  {tierPicks.length === 0 ? (
+                    <span className="text-xs opacity-50">{limit} needed</span>
+                  ) : (
+                    <div className="space-y-0.5">
+                      {tierPicks.map((id) => {
+                        const g = GOLFERS.find((gg) => gg.id === id);
+                        return g ? (
+                          <div key={id} className="flex items-center gap-1 justify-end font-semibold text-xs">
+                            {FLAG_EMOJI[g.country] ?? "🏴"} {g.name.split(" ").pop()} ✓
+                          </div>
+                        ) : null;
+                      })}
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             </div>
 
             {/* Golfer grid */}
-            <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            <div className="p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
               {tierGolfers.map((golfer) => {
-                const isSelected = selectedId === golfer.id;
-                const isPickedElsewhere = allGolfersPicked.includes(golfer.id) && !isSelected;
+                const isSelected = tierPicks.includes(golfer.id);
+                const isPickedElsewhere = allSelected.includes(golfer.id) && !isSelected;
+                const tierFull = tierCount >= limit && !isSelected;
 
                 return (
-                  <button
-                    key={golfer.id}
-                    onClick={() => handlePick(tierKey, golfer.id)}
-                    disabled={locked || isPickedElsewhere}
-                    className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-left text-sm transition-all border ${
-                      isSelected
-                        ? "bg-masters-green text-white border-masters-green shadow-md"
-                        : isPickedElsewhere
-                        ? "bg-gray-100 text-gray-300 border-gray-200 cursor-not-allowed"
-                        : locked
-                        ? "bg-gray-50 text-gray-500 border-gray-200 cursor-not-allowed"
-                        : "bg-white hover:bg-masters-green/10 hover:border-masters-green/50 border-gray-200 cursor-pointer"
-                    }`}
-                  >
-                    <span className="text-lg">{FLAG_EMOJI[golfer.country] ?? "🏴"}</span>
-                    <div className="flex-1 min-w-0">
-                      <div className={`font-semibold truncate ${isSelected ? "text-white" : "text-gray-900"}`}>
-                        {golfer.name}
+                  <GolferTooltip key={golfer.id} golfer={golfer} disabled={!showDetails}>
+                    <button
+                      onClick={() => handlePick(tierNum, golfer.id)}
+                      disabled={locked || isPickedElsewhere || (tierFull && !isSelected)}
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left text-sm transition-all border ${
+                        isSelected
+                          ? "bg-masters-green text-white border-masters-green shadow-md"
+                          : isPickedElsewhere || (tierFull && !isSelected)
+                          ? "bg-gray-100 text-gray-300 border-gray-200 cursor-not-allowed"
+                          : `bg-white border-gray-200 cursor-pointer ${s.btn}`
+                      }`}
+                    >
+                      <span className="text-xl leading-none">{FLAG_EMOJI[golfer.country] ?? "🏴"}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className={`font-semibold truncate text-sm ${isSelected ? "text-white" : "text-gray-900"}`}>
+                          {golfer.name}
+                        </div>
+                        {showDetails && (
+                          <div className={`text-xs flex items-center gap-2 ${isSelected ? "text-white/70" : "text-gray-400"}`}>
+                            <span className="font-mono font-bold">{formatOdds(golfer.odds)}</span>
+                            <span>·</span>
+                            <span>Win {golfer.winPct.toFixed(1)}%</span>
+                            <span>·</span>
+                            <span>Top5 {golfer.top5Pct}%</span>
+                          </div>
+                        )}
                       </div>
-                      <div className={`text-xs ${isSelected ? "text-white/70" : "text-gray-400"}`}>
-                        World #{golfer.worldRank}
-                      </div>
-                    </div>
-                    {isSelected && <span className="text-white text-base">✓</span>}
-                  </button>
+                      {isSelected && <span className="text-white text-base flex-shrink-0">✓</span>}
+                    </button>
+                  </GolferTooltip>
                 );
               })}
+            </div>
+
+            {/* Progress bar */}
+            <div className={`px-4 pb-3`}>
+              <div className="flex gap-1">
+                {Array.from({ length: limit }).map((_, i) => (
+                  <div
+                    key={i}
+                    className={`h-1 flex-1 rounded-full transition-all ${
+                      i < tierCount ? "bg-masters-green" : "bg-gray-200"
+                    }`}
+                  />
+                ))}
+              </div>
+              <p className="text-xs text-gray-400 mt-1">{tierCount}/{limit} selected</p>
             </div>
           </div>
         );
@@ -239,41 +267,35 @@ export default function GolferPicker({ settings }: GolferPickerProps) {
         <div className="flex items-center justify-between bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
           <div>
             {complete ? (
-              <p className="text-masters-green font-semibold text-sm">
-                ✓ All 4 picks selected — ready to submit!
-              </p>
+              <p className="text-masters-green font-semibold text-sm">✓ All 6 picks selected — ready to submit!</p>
             ) : (
-              <p className="text-gray-500 text-sm">
-                {4 - pickedCount} pick{4 - pickedCount !== 1 ? "s" : ""} remaining
-              </p>
+              <p className="text-gray-500 text-sm">{6 - pickedCount} pick{6 - pickedCount !== 1 ? "s" : ""} remaining</p>
             )}
-            {saved && submitted && (
-              <p className="text-green-600 text-xs mt-0.5">Picks saved successfully!</p>
-            )}
+            {saved && <p className="text-green-600 text-xs mt-0.5">Picks saved successfully!</p>}
           </div>
           <button
             onClick={handleSubmit}
             disabled={!complete}
             className={`px-6 py-2.5 rounded-lg font-semibold text-sm transition-all ${
               complete
-                ? "bg-masters-green hover:bg-masters-green-dark text-white shadow-md hover:shadow-lg"
+                ? "bg-masters-green hover:bg-masters-green-dark text-white shadow-md"
                 : "bg-gray-200 text-gray-400 cursor-not-allowed"
             }`}
           >
-            {submitted && saved ? "Update Picks" : "Submit Picks"}
+            {saved ? "Update Picks" : "Submit Picks"}
           </button>
         </div>
       )}
 
-      {/* Rules card */}
+      {/* Mini rules */}
       <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm text-gray-600">
-        <h4 className="font-semibold text-gray-800 mb-2">📋 Pool Rules</h4>
+        <h4 className="font-semibold text-gray-800 mb-2">📋 Quick Rules</h4>
         <ul className="space-y-1 list-disc list-inside">
-          <li>Pick <strong>1 golfer per tier</strong> (4 total)</li>
-          <li>Best <strong>3 of 4</strong> golfer scores count toward your total</li>
+          <li>Pick <strong>2 from Tier 1, 2 from Tier 2, 1 from Tier 3, 1 from Tier 4</strong></li>
+          <li>Best <strong>5 of 6</strong> golfer scores count toward your total (worst score dropped)</li>
           <li>Scores are relative to par — <strong>lowest total wins</strong></li>
-          <li>Missed cut = <strong>+{settings.cutPenalty} strokes</strong> per remaining round</li>
-          <li>Picks <strong>lock at first tee time</strong> on Thursday</li>
+          <li>Missed cut = your score + <strong>+{settings.cutPenalty} strokes per remaining round</strong></li>
+          <li>Picks <strong>lock at first tee time</strong> Thursday morning</li>
         </ul>
       </div>
     </div>

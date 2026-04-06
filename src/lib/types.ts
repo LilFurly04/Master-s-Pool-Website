@@ -6,18 +6,22 @@ export interface Golfer {
   country: string;
   worldRank: number;
   tier: Tier;
-  espnId?: string;
+  odds: number;       // American odds (positive), e.g. 400 for +400
+  winPct: number;     // 0–100, implied probability of winning
+  top5Pct: number;    // 0–100
+  top10Pct: number;   // 0–100
+  top20Pct: number;   // 0–100
 }
 
 export interface LiveScore {
   golferId: string;
   golferName: string;
   position: string;
-  totalScore: number;        // relative to par, e.g. -10
-  totalScoreDisplay: string; // e.g. "-10" or "E" or "+2"
+  totalScore: number;
+  totalScoreDisplay: string;
   currentRound: number;
-  thru: string;              // "F" for finished, "1" to "18"
-  roundScores: (number | null)[]; // score per round relative to par
+  thru: string;
+  roundScores: (number | null)[];
   madeCut: boolean;
   isWithdrawn: boolean;
 }
@@ -29,37 +33,58 @@ export interface TournamentStatus {
   lastUpdated: string;
 }
 
+// 6 pick slots: 2 from T1, 2 from T2, 1 from T3, 1 from T4
+export type PickSlot = "tier1a" | "tier1b" | "tier2a" | "tier2b" | "tier3" | "tier4";
+
 export interface Participant {
   id: string;
   name: string;
-  picks: {
-    tier1: string | null; // golfer id
-    tier2: string | null;
-    tier3: string | null;
-    tier4: string | null;
-  };
+  picks: Record<PickSlot, string | null>;
+}
+
+export interface EntrantProbability {
+  poolWinPct: number;
+  poolTop3Pct: number;
+  poolTop5Pct: number;
+  lineupGolferWinPct: number;  // P(at least one golfer wins the tournament)
+  lineupTop5Pct: number;       // P(at least one golfer finishes top 5)
 }
 
 export interface PoolEntry {
   participant: Participant;
-  scores: {
-    tier1: LiveScore | null;
-    tier2: LiveScore | null;
-    tier3: LiveScore | null;
-    tier4: LiveScore | null;
-  };
-  totalScore: number;
-  countingScores: number;   // number of golfers counting (not WD/MC)
+  scores: Record<PickSlot, LiveScore | null>;
+  allSixScores: number[];      // effective score for each of the 6 picks
+  totalScore: number;          // sum of best 5 of 6
+  droppedScore: number | null; // the dropped (worst) score
   cutsMissed: number;
   position: number;
+  probability: EntrantProbability;
 }
 
 export interface PoolSettings {
   name: string;
   year: number;
-  picksPerTier: number;      // always 1
-  countingGolfers: number;   // best N of 4 scores count (e.g. 3)
-  cutPenalty: number;        // strokes added per missed cut (e.g. 10)
-  pickDeadline: string;      // ISO date string
+  countingGolfers: number;  // best N of 6 (default 5)
+  cutPenalty: number;       // strokes added per remaining round for MC golfers
+  pickDeadline: string;
   isLocked: boolean;
 }
+
+// Which tier each slot belongs to, and how many per tier
+export const SLOT_TIER: Record<PickSlot, Tier> = {
+  tier1a: 1, tier1b: 1,
+  tier2a: 2, tier2b: 2,
+  tier3: 3,
+  tier4: 4,
+};
+
+export const ALL_SLOTS: PickSlot[] = ["tier1a", "tier1b", "tier2a", "tier2b", "tier3", "tier4"];
+
+export const TIER_PICK_LIMITS: Record<Tier, number> = { 1: 2, 2: 2, 3: 1, 4: 1 };
+
+export const TIER_SLOTS: Record<Tier, PickSlot[]> = {
+  1: ["tier1a", "tier1b"],
+  2: ["tier2a", "tier2b"],
+  3: ["tier3"],
+  4: ["tier4"],
+};
