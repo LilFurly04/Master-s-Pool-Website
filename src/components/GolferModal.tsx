@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Golfer } from "@/lib/types";
 import { FLAG_EMOJI, formatOdds } from "@/data/golfers";
-import { formatPosition, getGolferHistory, sgColor } from "@/data/golfer-history";
+import { formatPosition, getGolferHistory, positionValue, sgColor } from "@/data/golfer-history";
 
 interface GolferModalProps {
   golfer: Golfer;
@@ -30,10 +30,10 @@ export default function GolferModal({ golfer, onClose }: GolferModalProps) {
   }, []);
 
   const top10s = history
-    ? history.allFinishes.filter((f) => typeof f.position === "number" && f.position <= 10).length
+    ? history.allFinishes.filter((f) => { const v = positionValue(f.position); return v !== null && v <= 10; }).length
     : 0;
   const top20s = history
-    ? history.allFinishes.filter((f) => typeof f.position === "number" && f.position <= 20).length
+    ? history.allFinishes.filter((f) => { const v = positionValue(f.position); return v !== null && v <= 20; }).length
     : 0;
 
   const sgBar = (val: number, max = 3) => {
@@ -53,13 +53,14 @@ export default function GolferModal({ golfer, onClose }: GolferModalProps) {
     );
   };
 
-  const finishBadge = (p: number | "MC" | "WD" | "CUT", key: number | string) => {
+  const finishBadge = (p: number | string, key: number | string) => {
     const label = formatPosition(p);
+    const v = positionValue(p);
     let cls = "bg-gray-100 text-gray-600";
     if (p === "MC" || p === "WD" || p === "CUT") cls = "bg-red-100 text-red-700 font-semibold";
-    else if (p === 1) cls = "bg-yellow-100 text-yellow-800 font-bold";
-    else if ((p as number) <= 5) cls = "bg-green-100 text-green-700 font-semibold";
-    else if ((p as number) <= 10) cls = "bg-blue-100 text-blue-700 font-semibold";
+    else if (v === 1) cls = "bg-yellow-100 text-yellow-800 font-bold";
+    else if (v !== null && v <= 5) cls = "bg-green-100 text-green-700 font-semibold";
+    else if (v !== null && v <= 10) cls = "bg-blue-100 text-blue-700 font-semibold";
     return (
       <span key={key} className={`inline-block text-xs px-2 py-0.5 rounded-full ${cls}`}>
         {label}
@@ -81,29 +82,15 @@ export default function GolferModal({ golfer, onClose }: GolferModalProps) {
         {/* Header */}
         <div className="bg-masters-green text-white px-5 py-4 rounded-t-2xl">
           <div className="flex items-start gap-4">
-            {/* Photo */}
-            <div className="w-20 h-20 rounded-xl overflow-hidden flex-shrink-0 bg-masters-green-dark border-2 border-masters-gold/40">
-              {golfer.espnId ? (
-                <img
-                  src={`https://a.espncdn.com/i/headshots/golf/players/full/${golfer.espnId}.png`}
-                  alt={golfer.name}
-                  className="w-full h-full object-cover object-top"
-                  onError={(e) => {
-                    e.currentTarget.style.display = "none";
-                    e.currentTarget.nextElementSibling?.classList.remove("hidden");
-                  }}
-                />
-              ) : null}
-              <div className={`w-full h-full flex items-center justify-center text-4xl ${golfer.espnId ? "hidden" : ""}`}>
-                {FLAG_EMOJI[golfer.country] ?? "🏴"}
-              </div>
+            {/* Flag */}
+            <div className="w-14 h-14 rounded-xl flex-shrink-0 flex items-center justify-center text-5xl bg-masters-green-dark border-2 border-masters-gold/30">
+              {FLAG_EMOJI[golfer.country] ?? "🏴"}
             </div>
 
             {/* Name + meta */}
             <div className="flex-1 min-w-0">
               <h2 className="text-xl font-bold leading-tight">{golfer.name}</h2>
               <div className="flex items-center gap-2 mt-1">
-                <span className="text-2xl leading-none">{FLAG_EMOJI[golfer.country] ?? "🏴"}</span>
                 <span className="text-white/70 text-sm">
                   {golfer.owgr ? `OWGR #${golfer.owgr}` : ""}
                 </span>

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Golfer } from "@/lib/types";
 import { FLAG_EMOJI, formatOdds } from "@/data/golfers";
-import { formatPosition, getGolferHistory } from "@/data/golfer-history";
+import { formatPosition, getGolferHistory, positionValue } from "@/data/golfer-history";
 
 interface GolferTooltipProps {
   golfer: Golfer;
@@ -52,10 +52,10 @@ export default function GolferTooltip({ golfer, children, disabled }: GolferTool
   if (disabled || !history) return <>{children}</>;
 
   const top10s = history.allFinishes.filter(
-    (f) => typeof f.position === "number" && f.position <= 10
+    (f) => { const v = positionValue(f.position); return v !== null && v <= 10; }
   ).length;
   const top20s = history.allFinishes.filter(
-    (f) => typeof f.position === "number" && f.position <= 20
+    (f) => { const v = positionValue(f.position); return v !== null && v <= 20; }
   ).length;
 
   const tooltip = visible && (
@@ -67,24 +67,7 @@ export default function GolferTooltip({ golfer, children, disabled }: GolferTool
     >
       {/* Compact header */}
       <div className="bg-masters-green text-white px-3 py-2.5 flex items-center gap-2.5">
-        {golfer.espnId ? (
-          <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 bg-masters-green-dark border border-masters-gold/40">
-            <img
-              src={`https://a.espncdn.com/i/headshots/golf/players/full/${golfer.espnId}.png`}
-              alt={golfer.name}
-              className="w-full h-full object-cover object-top"
-              onError={(e) => {
-                e.currentTarget.style.display = "none";
-                e.currentTarget.nextElementSibling?.classList.remove("hidden");
-              }}
-            />
-            <div className="hidden w-full h-full flex items-center justify-center text-xl">
-              {FLAG_EMOJI[golfer.country] ?? "🏴"}
-            </div>
-          </div>
-        ) : (
-          <span className="text-2xl leading-none flex-shrink-0">{FLAG_EMOJI[golfer.country] ?? "🏴"}</span>
-        )}
+        <span className="text-2xl leading-none flex-shrink-0">{FLAG_EMOJI[golfer.country] ?? "🏴"}</span>
         <div className="min-w-0">
           <div className="font-bold text-sm leading-tight truncate">{golfer.name}</div>
           <div className="text-white/70 text-xs">
