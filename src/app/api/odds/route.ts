@@ -4,11 +4,10 @@ import { GOLFERS } from "@/data/golfers";
 // ─── The Odds API ─────────────────────────────────────────────────────────────
 // Sign up free at: https://the-odds-api.com  (500 req/month free tier)
 // Set ODDS_API_KEY in your .env.local file.
-// We cache the response for 10 minutes to stay well within free-tier limits.
 //
-// Sport key for The Masters outright winner market:
-//   golf_masters_tournament_winner
-// Fallback (if Masters key not found): golf_pga_championship_winner
+// Cache schedule (Central Daylight Time, UTC-5):
+//   • Apr 9–12 2026 (tournament days), 6 AM – 8 PM CDT → refresh every 10 min
+//   • All other times → refresh every 60 min
 
 const ODDS_API_BASE = "https://api.the-odds-api.com/v4";
 const SPORT_KEYS = [
@@ -17,7 +16,35 @@ const SPORT_KEYS = [
   "golf_masters",
 ];
 const BOOKMAKERS = "fanduel,draftkings,betmgm,williamhill_us,pointsbetus";
-const CACHE_SECONDS = 600; // 10 minutes
+
+// ─── Dynamic TTL ──────────────────────────────────────────────────────────────
+// Tournament days: April 9–12 2026. Active window: 6 AM–8 PM CDT (UTC-5).
+function getCacheTtlMs(): number {
+  const now = new Date();
+  // Convert to CDT (UTC-5)
+  const cdt = new Date(now.getTime() - 5 * 60 * 60 * 1000);
+
+  const year  = cdt.getUTCFullYear();
+  const month = cdt.getUTCMonth(); // 0-indexed; 3 = April
+  const date  = cdt.getUTCDate();
+  const hour  = cdt.getUTCHours();
+
+  const isTournamentDay = year === 2026 && month === 3 && date >= 9 && date <= 12;
+  const isActiveWindow  = hour >= 6 && hour < 20; // 6 AM ≤ t < 8 PM CDT
+
+  if (isTournamentDay && isActiveWindow) {
+    return 10 * 60 * 1000; // 10 minutes
+  }
+  return 60 * 60 * 1000; // 1 hour
+}
+
+// ─── In-memory cache ──────────────────────────────────────────────────────────
+// Adapts its TTL on every request, so the schedule above applies automatically.
+interface CacheEntry {
+  data: OddsResponse;
+  timestamp: number;
+}
+let cache: CacheEntry | null = null;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface OddsOutcome {
@@ -47,9 +74,9 @@ interface OddsEvent {
 export interface NormalizedOdds {
   golferId: string;
   golferName: string;
-  odds: number;             // best American odds found across bookmakers
-  bookmaker: string;        // which book had the best price
-  winPct: number;           // implied probability (0–100)
+  odds: number;      // best American odds found across bookmakers
+  bookmaker: string; // which book had the best price
+  winPct: number;    // implied probability (0–100)
 }
 
 export interface OddsResponse {
@@ -59,27 +86,22 @@ export interface OddsResponse {
   requestsRemaining: number | null;
   lastUpdated: string;
   apiAvailable: boolean;
+  nextRefreshMinutes: number; // how long until next scheduled refresh
 }
 
 // ─── Name matching ────────────────────────────────────────────────────────────
-// The Odds API uses full player names; we match them to our golfer IDs.
 function matchGolfer(apiName: string): string | null {
   const normalized = apiName.toLowerCase().trim();
 
-  // Direct full-name match
-  const exact = GOLFERS.find(
-    (g) => g.name.toLowerCase() === normalized
-  );
+  const exact = GOLFERS.find((g) => g.name.toLowerCase() === normalized);
   if (exact) return exact.id;
 
-  // Last-name match (handles "Scheffler" → "Scottie Scheffler")
   const byLast = GOLFERS.find((g) => {
     const last = g.name.split(" ").pop()?.toLowerCase() ?? "";
     return last === normalized || normalized.includes(last);
   });
   if (byLast) return byLast.id;
 
-  // Partial match on any word
   const words = normalized.split(" ");
   const byWord = GOLFERS.find((g) => {
     const gWords = g.name.toLowerCase().split(" ");
@@ -90,32 +112,33 @@ function matchGolfer(apiName: string): string | null {
 
 // ─── Implied probability from American odds ───────────────────────────────────
 function toImpliedPct(odds: number): number {
-  return parseFloat((100 / (odds + 100) * 100).toFixed(2));
+  return parseFloat(((100 / (odds + 100)) * 100).toFixed(2));
 }
 
-// ─── Static fallback (returns our hardcoded FanDuel odds) ────────────────────
+// ─── Static fallback ──────────────────────────────────────────────────────────
 function buildStaticResponse(): OddsResponse {
-  const odds: NormalizedOdds[] = GOLFERS.map((g) => ({
-    golferId: g.id,
-    golferName: g.name,
-    odds: g.odds,
-    bookmaker: "FanDuel (static)",
-    winPct: g.winPct,
-  }));
-
+  const ttlMs = getCacheTtlMs();
   return {
-    odds,
+    odds: GOLFERS.map((g) => ({
+      golferId: g.id,
+      golferName: g.name,
+      odds: g.odds,
+      bookmaker: "FanDuel (static)",
+      winPct: g.winPct,
+    })),
     source: "static",
     bookmakers: ["FanDuel (static)"],
     requestsRemaining: null,
     lastUpdated: new Date().toISOString(),
     apiAvailable: false,
+    nextRefreshMinutes: Math.round(ttlMs / 60000),
   };
 }
 
 // ─── Fetch from The Odds API ──────────────────────────────────────────────────
 async function fetchLiveOdds(apiKey: string): Promise<OddsResponse | null> {
-  // Try each sport key until one returns data
+  const ttlMs = getCacheTtlMs();
+
   for (const sportKey of SPORT_KEYS) {
     const url = new URL(`${ODDS_API_BASE}/sports/${sportKey}/odds`);
     url.searchParams.set("apiKey", apiKey);
@@ -125,26 +148,25 @@ async function fetchLiveOdds(apiKey: string): Promise<OddsResponse | null> {
     url.searchParams.set("oddsFormat", "american");
 
     try {
+      // Always fetch fresh — our in-memory cache handles rate limiting
       const res = await fetch(url.toString(), {
-        headers: { "Accept": "application/json" },
-        next: { revalidate: CACHE_SECONDS },
+        headers: { Accept: "application/json" },
+        cache: "no-store",
       });
 
       const requestsRemaining = parseInt(
-        res.headers.get("x-requests-remaining") ?? "-1", 10
+        res.headers.get("x-requests-remaining") ?? "-1",
+        10
       );
 
-      if (res.status === 404 || res.status === 422) continue; // try next key
+      if (res.status === 404 || res.status === 422) continue;
       if (!res.ok) return null;
 
       const events: OddsEvent[] = await res.json();
       if (!events.length) continue;
 
-      // Use the most recent/active event
       const event = events[0];
       const usedBooks: Set<string> = new Set();
-
-      // Collect best (highest) odds per player across all bookmakers
       const bestOddsMap = new Map<string, { odds: number; bookmaker: string }>();
 
       for (const book of event.bookmakers ?? []) {
@@ -157,7 +179,6 @@ async function fetchLiveOdds(apiKey: string): Promise<OddsResponse | null> {
           if (!golferId) continue;
 
           const current = bestOddsMap.get(golferId);
-          // Higher American odds = better price for bettor
           if (!current || outcome.price > current.odds) {
             bestOddsMap.set(golferId, { odds: outcome.price, bookmaker: book.title });
           }
@@ -179,7 +200,7 @@ async function fetchLiveOdds(apiKey: string): Promise<OddsResponse | null> {
         }
       );
 
-      // Add any golfers not found in live odds using static fallback
+      // Fill in any golfers not found in live odds
       for (const g of GOLFERS) {
         if (!bestOddsMap.has(g.id)) {
           odds.push({
@@ -192,7 +213,6 @@ async function fetchLiveOdds(apiKey: string): Promise<OddsResponse | null> {
         }
       }
 
-      // Sort by odds ascending (favorites first)
       odds.sort((a, b) => a.odds - b.odds);
 
       return {
@@ -202,6 +222,7 @@ async function fetchLiveOdds(apiKey: string): Promise<OddsResponse | null> {
         requestsRemaining: requestsRemaining >= 0 ? requestsRemaining : null,
         lastUpdated: new Date().toISOString(),
         apiAvailable: true,
+        nextRefreshMinutes: Math.round(ttlMs / 60000),
       };
     } catch {
       continue;
@@ -212,21 +233,26 @@ async function fetchLiveOdds(apiKey: string): Promise<OddsResponse | null> {
 }
 
 // ─── Route handler ────────────────────────────────────────────────────────────
+export const dynamic = "force-dynamic"; // disable Next.js static caching; we manage our own
+
 export async function GET() {
+  const now = Date.now();
+  const ttlMs = getCacheTtlMs();
+
+  // Serve from in-memory cache if still fresh
+  if (cache && now - cache.timestamp < ttlMs) {
+    return NextResponse.json(cache.data);
+  }
+
   const apiKey = process.env.ODDS_API_KEY;
 
+  let result: OddsResponse;
   if (!apiKey) {
-    return NextResponse.json(buildStaticResponse());
+    result = buildStaticResponse();
+  } else {
+    result = (await fetchLiveOdds(apiKey)) ?? buildStaticResponse();
   }
 
-  const live = await fetchLiveOdds(apiKey);
-  if (!live) {
-    return NextResponse.json(buildStaticResponse());
-  }
-
-  return NextResponse.json(live, {
-    headers: {
-      "Cache-Control": `public, s-maxage=${CACHE_SECONDS}, stale-while-revalidate=60`,
-    },
-  });
+  cache = { data: result, timestamp: now };
+  return NextResponse.json(result);
 }
